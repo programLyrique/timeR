@@ -31,6 +31,8 @@
 #include "Parse.h"
 #include <R_ext/Print.h>
 
+#include "timeR.h"
+
 #if !defined(__STDC_ISO_10646__) && (defined(__APPLE__) || defined(__FreeBSD__) || defined(__sun))
 /* This may not be 100% true (see the comment in rlocale.h),
    but it seems true in normal locales.
@@ -387,6 +389,7 @@ static SEXP	xxpipe(SEXP, SEXP, YYLTYPE *);
 static SEXP	xxpipebind(SEXP, SEXP, SEXP, YYLTYPE *);
 static SEXP	xxunary(SEXP, SEXP);
 static SEXP	xxbinary(SEXP, SEXP, SEXP);
+static SEXP	xxassign(SEXP, SEXP, SEXP);
 static SEXP	xxparen(SEXP, SEXP);
 static SEXP	xxsubscript(SEXP, SEXP, SEXP);
 static SEXP	xxexprlist(SEXP, YYLTYPE *, SEXP);
@@ -494,8 +497,8 @@ expr	: 	NUM_CONST			{ $$ = $1;	setId(@$); }
 	|	expr OR2 expr			{ $$ = xxbinary($2,$1,$3);	setId(@$); }
 	|	expr PIPE expr			{ $$ = xxpipe($1,$3,&@3);       setId(@$); }
 	|	expr PIPEBIND expr		{ $$ = xxpipebind($2,$1,$3,&@2);	setId(@$); }
-	|	expr LEFT_ASSIGN expr 		{ $$ = xxbinary($2,$1,$3);	setId(@$); }
-	|	expr RIGHT_ASSIGN expr 		{ $$ = xxbinary($2,$3,$1);	setId(@$); }
+	|	expr LEFT_ASSIGN expr 		{ $$ = xxasign($2,$1,$3);	setId(@$); }
+	|	expr RIGHT_ASSIGN expr 		{ $$ = xxassign($2,$3,$1);	setId(@$); }
 	|	FUNCTION '(' formlist ')' cr expr_or_assign_or_help %prec LOW
 						{ $$ = xxdefun($1,$3,$6,&@$); 	setId(@$); }
 	|	'\\' '(' formlist ')' cr expr_or_assign_or_help %prec LOW							{ $$ = xxdefun(R_FunctionSymbol,$3,$6,&@$); 	setId(@$); }
@@ -760,11 +763,16 @@ static void initId(void){
 	identifier = 0 ;
 }
 
-static SEXP makeSrcref(YYLTYPE *lloc, SEXP srcfile)
+static SEXP makeSrcref(YYLTYPE *lloc, SEXP srcfile, unsigned int bin_index)
 {
     SEXP val;
 
-    PROTECT(val = allocVector(INTSXP, 8));
+	if (TIME_R_ENABLED && bin_index > 0) {
+        PROTECT(val = allocVector(INTSXP, 9));
+        INTEGER(val)[8] = bin_index;
+    } else
+    	PROTECT(val = allocVector(INTSXP, 8));
+
     INTEGER(val)[0] = lloc->first_line;
     INTEGER(val)[1] = lloc->first_byte;
     INTEGER(val)[2] = lloc->last_line;
@@ -797,7 +805,7 @@ static void attachSrcrefs(SEXP val)
 	wholeFile.last_column = ParseState.xxcolno;
 	wholeFile.first_parsed = 1;
 	wholeFile.last_parsed = ParseState.xxparseno;
-	setAttrib(val, R_WholeSrcrefSymbol, makeSrcref(&wholeFile, PS_SRCFILE));
+	setAttrib(val, R_WholeSrcrefSymbol, makeSrcref(&wholeFile, PS_SRCFILE, 0));
     }
     PS_SET_SRCREFS(R_NilValue);
     ParseState.didAttach = true;
@@ -808,7 +816,7 @@ static int xxvalue(SEXP v, int k, YYLTYPE *lloc)
 {
     if (k > 2) {
 	if (ParseState.keepSrcRefs) {
-	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE));
+	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE, 0));
 	    AppendToSrcRefs(s);
 	    UNPROTECT(1); /* s */
 	}
@@ -901,7 +909,7 @@ static SEXP xxexprlist1(SEXP expr, YYLTYPE *lloc)
 	PRESERVE_SV(ans = NewList());
 	if (ParseState.keepSrcRefs) {
 	    setAttrib(ans, R_SrcrefSymbol, PS_SRCREFS);
-	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE));
+	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE, 0));
 	    SetSingleSrcRef(s);
 	    UNPROTECT(1); /* s */
 	}
@@ -918,7 +926,7 @@ static SEXP xxexprlist2(SEXP exprlist, SEXP expr, YYLTYPE *lloc)
     SEXP ans;
     if (GenerateCode) {
 	if (ParseState.keepSrcRefs) {
-	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE));
+	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE, 0));
 	    AppendToSrcRefs(s);
 	    UNPROTECT(1); /* s */
 	}
@@ -1170,8 +1178,16 @@ static SEXP xxdefun(SEXP fname, SEXP formals, SEXP body, YYLTYPE *lloc)
 
     if (GenerateCode) {
     	if (ParseState.keepSrcRefs) {
-	    srcref = makeSrcref(lloc, PS_SRCFILE);
+		unsigned int bin_index;
+
+	    bin_index = timeR_add_userfn_bin();
+	    srcref = makeSrcref(lloc, PS_SRCFILE, bin_index);
     	    ParseState.didAttach = true;
+
+		timeR_name_bin_anonfunc(INTEGER(srcref)[8],
+				getSrcFileName(srcref),
+				lloc->first_line,
+				lloc->first_column);
     	} else
     	    srcref = R_NilValue;
 	PRESERVE_SV(ans = lang4(fname, CDR(formals), body, srcref));
@@ -1202,6 +1218,42 @@ static SEXP xxbinary(SEXP n1, SEXP n2, SEXP n3)
 	PRESERVE_SV(ans = R_NilValue);
     RELEASE_SV(n2);
     RELEASE_SV(n3);
+
+    return ans;
+}
+
+static SEXP xxassign(SEXP n1, SEXP n2, SEXP n3)
+{
+    static SEXP function_symbol;
+    SEXP ans = xxbinary(n1, n2, n3);
+
+    if (function_symbol == NULL)
+	function_symbol = install("function");
+
+    if (TIME_R_ENABLED    &&
+	isSymbol(n2)      &&
+	isLanguage(n3)    &&
+	isSymbol(CAR(n3)) &&
+	CAR(n3) == function_symbol) {
+	SEXP srcref = CADDDR(n3);
+
+	if (srcref != R_NilValue &&
+	    TYPEOF(srcref) == INTSXP &&
+	    LENGTH(srcref) > 8) {
+	    /* replace the default "anon" function name with the LHS symbol name */
+	    SEXP srcref = CADDDR(n3);
+	    if (LENGTH(srcref) > 8) {
+		char nametmp[1024];
+
+		nametmp[sizeof(nametmp) - 1] = 0;
+		snprintf(nametmp, sizeof(nametmp), "%s:%s", getSrcFileName(srcref),
+			 CHAR(PRINTNAME(n2)));
+
+		timeR_name_bin(INTEGER(srcref)[8], nametmp);
+	    }
+	}
+    }
+
     return ans;
 }
 
@@ -1375,7 +1427,7 @@ static SEXP xxexprlist(SEXP a1, YYLTYPE *lloc, SEXP a2)
 	SETCAR(a2, a1);
 	if (ParseState.keepSrcRefs) {
 	    PROTECT(prevSrcrefs = getAttrib(a2, R_SrcrefSymbol));
-	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE));
+	    SEXP s = PROTECT(makeSrcref(lloc, PS_SRCFILE, 0));
 	    PrependToSrcRefs(s);
 	    attachSrcrefs(a2);
 	    UNPROTECT(2); /* prevSrcrefs, s */
@@ -1788,13 +1840,22 @@ static int file_getc(void)
 
 /* used in main.c */
 attribute_hidden
-SEXP R_Parse1File(FILE *fp, int gencode, ParseStatus *status)
+SEXP R_Parse1File(FILE *fp, int gencode, ParseStatus *status, const char *filename)
 {
+	SEXP srcname; 
     ParseInit();
     ParseContextInit();
     GenerateCode = gencode;
     fp_parse = fp;
     ptr_getc = file_getc;
+	if (TIME_R_ENABLED) {
+	ParseState.keepSrcRefs = TRUE;
+	PS_SET_SRCFILE(NewEnvironment(R_NilValue, R_NilValue, R_EmptyEnv));
+	PS_SET_ORIGINAL(PS_SRCFILE);
+	PS_SET_SRCREFS(R_NilValue);
+	PROTECT(srcname = mkString(filename));
+	setParseFilename(srcname);
+    }
     R_Parse1(status);
     CLEAR_SVS();
     return R_CurrentExpr;
@@ -1809,21 +1870,27 @@ static int buffer_getc(void)
 
 /* Used only in main.c */
 attribute_hidden
-SEXP R_Parse1Buffer(IoBuffer *buffer, int gencode, ParseStatus *status)
+SEXP R_Parse1Buffer(IoBuffer *buffer, int gencode, ParseStatus *status, const char* sourcename)
 {
     bool keepSource = false; 
     RCNTXT cntxt;
+	SEXP srcname;
 
     R_InitSrcRefState(&cntxt);
     if (gencode) {
-    	keepSource = asBool(GetOption1(install("keep.source")));
+		if (TIME_R_ENABLED)
+			keepSource = true;
+		else 
+    		keepSource = asBool(GetOption1(install("keep.source")));
     	if (keepSource) {
     	    ParseState.keepSrcRefs = true;
-	    ParseState.keepParseData =
+	    ParseState.keepParseData = TIME_R_ENABLED || 
 		asRbool(GetOption1(install("keep.parse.data")), R_NilValue);
 	    PS_SET_SRCFILE(NewEnvironment(R_NilValue, R_NilValue, R_EmptyEnv));
 	    PS_SET_ORIGINAL(PS_SRCFILE);
 	    PS_SET_SRCREFS(R_NilValue);
+		PROTECT(srcname = mkString(sourcename));
+	    setParseFilename(srcname);
 	}
     }
     ParseInit();
