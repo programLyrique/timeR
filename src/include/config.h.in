@@ -847,6 +847,9 @@
 /* Define to 1 if you have the `timespec_get' function. */
 #undef HAVE_TIMESPEC_GET
 
+/* Define this to enable timeR deterministic profiling. */
+#undef HAVE_TIME_R
+
 /* Define to 1 if your 'struct tm' has tm_gmtoff. */
 #undef HAVE_TM_GMTOFF
 
@@ -1154,6 +1157,27 @@
 
 /* Define to enable provoking compile errors on write barrier violation. */
 #undef TESTING_WRITE_BARRIER
+
+/* Define this to select POSIX clock_gettime as timeR clock source. */
+#undef TIME_R_CLOCK_POSIX
+
+/* Define this to select RDTSC as timeR clock source. */
+#undef TIME_R_CLOCK_RDTSC
+
+/* Define this to select RDTSCP as timeR clock source. */
+#undef TIME_R_CLOCK_RDTSCP
+
+/* Define this to enable external function timers. */
+#undef TIME_R_EXTFUNC
+
+/* Define this to enable function table timers. */
+#undef TIME_R_FUNTAB
+
+/* Define this to enable statically defined timers. */
+#undef TIME_R_STATICTIMERS
+
+/* Define this to enable user function timers. */
+#undef TIME_R_USERFUNCTIONS
 
 /* Define to 1 if the type of the st_atim member of a struct stat is struct
    timespec. */
