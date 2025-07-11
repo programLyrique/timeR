@@ -38,6 +38,7 @@ SOURCES_C = \
 	unique.c util.c \
 	version.c \
 	g_alab_her.c g_cntrlify.c g_fontdb.c g_her_glyph.c
+@WANT_TIME_R_TRUE@ SOURCES_C += timeR.c
 
 SOURCES_F =  xxxpr.f
 
