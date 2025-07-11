@@ -38,6 +38,7 @@
 #include "Fileio.h"
 #include "Parse.h"
 #include "Startup.h"
+#include "timeR.h"
 
 #include <locale.h>
 #include <R_ext/Print.h>
@@ -351,9 +352,12 @@ static void check_session_exit(void)
 }
 
 void R_ReplDLLinit(void)
-{
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+{   
+    MARK_TIMER();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+	    check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     R_IoBufferWriteReset(&R_ConsoleIob);
     prompt_type = 1;
@@ -718,9 +722,11 @@ static void R_LoadProfile(FILE *fparg, SEXP env)
 {
     FILE * volatile fp = fparg; /* is this needed? */
     if (fp != NULL) {
-	if (SETJMP(R_Toplevel.cjmpbuf))
+    MARK_TIMER();
+	if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
 	    check_session_exit();
-	else {
+    } else {
 	    R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
 	    R_ReplFile(fp, env);
 	}
@@ -1059,8 +1065,11 @@ void setup_Rmainloop(void)
 	R_Suicide(_("unable to open the base package\n"));
 
     doneit = 0;
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    MARK_TIMER();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+	    check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (R_SignalHandlers) init_signal_handlers();
     if (!doneit) {
@@ -1085,8 +1094,10 @@ void setup_Rmainloop(void)
 
     /* require(methods) if it is in the default packages */
     doneit = 0;
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+	    check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (!doneit) {
 	doneit = 1;
@@ -1132,16 +1143,20 @@ void setup_Rmainloop(void)
        or dropped on the application.
     */
     doneit = 0;
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+	    check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (!doneit) {
 	doneit = 1;
 	R_InitialData();
     }
     else {
-	if (SETJMP(R_Toplevel.cjmpbuf))
+	if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
 	    check_session_exit();
+    }
 	else {
     	    warning(_("unable to restore saved data in %s\n"), get_workspace_name());
 	}
@@ -1152,8 +1167,10 @@ void setup_Rmainloop(void)
        If there is an error we continue. */
 
     doneit = 0;
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+        check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (!doneit) {
 	doneit = 1;
@@ -1171,8 +1188,10 @@ void setup_Rmainloop(void)
        If there is an error we continue. */
 
     doneit = 0;
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+        check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (!doneit) {
 	doneit = 1;
@@ -1225,19 +1244,25 @@ static void end_Rmainloop(void)
 }
 
 void run_Rmainloop(void)
-{
+{   
+    BEGIN_TIMER(TR_Repl);
     /* Here is the real R read-eval-loop. */
     /* We handle the console until end-of-file. */
-    if (SETJMP(R_Toplevel.cjmpbuf))
-	check_session_exit();
+    MARK_TIMER();
+    if (SETJMP(R_Toplevel.cjmpbuf)) {
+        RELEASE_TIMER();
+	    check_session_exit();
+    }
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     R_ReplConsole(R_GlobalEnv, 0, 0);
+    END_TIMER(TR_Repl);
     end_Rmainloop(); /* must go here */
 }
 
 void mainloop(void)
 {
     setup_Rmainloop();
+    timeR_startup_done();
     run_Rmainloop();
 }
 
@@ -1507,6 +1532,7 @@ attribute_hidden SEXP do_browser(SEXP call, SEXP op, SEXP args, SEXP rho)
 
     begincontext(&returncontext, CTXT_BROWSER, call, rho,
 		 R_BaseEnv, argList, R_NilValue);
+     MARK_TIMER();
     if (!SETJMP(returncontext.cjmpbuf)) {
 	begincontext(&thiscontext, CTXT_RESTART, R_NilValue, rho,
 		     R_BaseEnv, R_NilValue, R_NilValue);
@@ -1535,7 +1561,8 @@ attribute_hidden SEXP do_browser(SEXP call, SEXP op, SEXP args, SEXP rho)
 	R_ReplConsole(rho, savestack, browselevel + 1);
 #endif
 	endcontext(&thiscontext);
-    }
+    } else
+    RELEASE_TIMER();
     endcontext(&returncontext);
 
     /* Reset the interpreter state. */

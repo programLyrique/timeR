@@ -32,6 +32,8 @@
 #include <errno.h>
 #include <math.h>
 
+#include "timeR.h"
+
 static SEXP bcEval(SEXP, SEXP);
 static void bcEval_init(void);
 
@@ -1229,7 +1231,9 @@ SEXP eval(SEXP e, SEXP rho)
 	    const void *vmax = vmaxget();
 	    PROTECT(e);
 	    R_Visible = flag != 1;
+		BEGIN_PRIMFUN_TIMER(PRIMOFFSET(op));
 	    tmp = PRIMFUN(op) (e, op, CDR(e), rho);
+		END_PRIMFUN_TIMER(PRIMOFFSET(op));
 #ifdef CHECK_VISIBILITY
 	    if(flag < 2 && R_Visible == flag) {
 		char *nm = PRIMNAME(op);
@@ -1257,11 +1261,15 @@ SEXP eval(SEXP e, SEXP rho)
 		begincontext(&cntxt, CTXT_BUILTIN, e,
 			     R_BaseEnv, R_BaseEnv, R_NilValue, R_NilValue);
 		R_Srcref = NULL;
+		BEGIN_PRIMFUN_TIMER(PRIMOFFSET(op));
 		tmp = PRIMFUN(op) (e, op, tmp, rho);
+		END_PRIMFUN_TIMER(PRIMOFFSET(op));
 		R_Srcref = oldref;
 		endcontext(&cntxt);
 	    } else {
+		BEGIN_PRIMFUN_TIMER(PRIMOFFSET(op));
 		tmp = PRIMFUN(op) (e, op, tmp, rho);
+		END_PRIMFUN_TIMER(PRIMOFFSET(op));
 	    }
 #ifdef CHECK_VISIBILITY
 	    if(flag < 2 && R_Visible == flag) {
@@ -2296,17 +2304,34 @@ static SEXP make_applyClosure_env(SEXP call, SEXP op, SEXP arglist, SEXP rho,
 static SEXP applyClosure_core(SEXP call, SEXP op, SEXP arglist, SEXP rho,
 			      SEXP suppliedvars, Rboolean unpromise)
 {
+	BEGIN_TIMER(TR_Match);
+
     SEXP newrho = make_applyClosure_env(call, op, arglist, rho, suppliedvars);
     PROTECT(newrho);
+
+	END_TIMER(TR_Match);
+	SEXP cursrcref = R_GetCurrentSrcref(0);
+    unsigned int timeR_bin_id = TR_UserFuncFallback;
+
+    if (TIME_R_ENABLED              &&
+        cursrcref != R_NilValue     &&
+        TYPEOF(cursrcref) == INTSXP &&
+        LENGTH(cursrcref) > 8) {
+        timeR_bin_id = INTEGER(cursrcref)[8];
+        if (TYPEOF(BODY(op)) == BCODESXP)
+	    timeR_mark_bcode(timeR_bin_id);
+    }
 
     /*  If we have a generic function we need to use the sysparent of
 	the generic as the sysparent of the method because the method
 	is a straight substitution of the generic.  */
 
+	BEGIN_RFUNC_TIMER(timeR_bin_id);
     SEXP val = R_execClosure(call, newrho,
 			     (R_GlobalContext->callflag == CTXT_GENERIC) ?
 			     R_GlobalContext->sysparent : rho,
 			     rho, arglist, op);
+	END_RFUNC_TIMER(timeR_bin_id);
 #ifdef ADJUST_ENVIR_REFCNTS
     Rboolean is_getter_call =
 	(CADR(call) == R_TmpvalSymbol && ! R_isReplaceSymbol(CAR(call)));
@@ -2318,6 +2343,9 @@ static SEXP applyClosure_core(SEXP call, SEXP op, SEXP arglist, SEXP rho,
 #endif
 
     UNPROTECT(1); /* newrho */
+	
+
+
     return val;
 }
 
@@ -2380,7 +2408,9 @@ static R_INLINE SEXP R_execClosure(SEXP call, SEXP newrho, SEXP sysparent,
     /*  Set a longjmp target which will catch any explicit returns
 	from the function body.  */
 
+	MARK_TIMER();
     if ((SETJMP(cntxt.cjmpbuf))) {
+	RELEASE_TIMER();
 	if (!cntxt.jumptarget) {
 	    /* ignores intermediate jumps for on.exits */
 	    cntxt.returnValue = SEXP_TO_STACKVAL(R_ReturnedValue);
@@ -2812,7 +2842,10 @@ attribute_hidden SEXP do_for(SEXP call, SEXP op, SEXP args, SEXP rho)
 
     begincontext(&cntxt, CTXT_LOOP, R_NilValue, rho, R_BaseEnv, R_NilValue,
 		 R_NilValue);
-    switch (SETJMP(cntxt.cjmpbuf)) {
+	MARK_TIMER();
+	int res = SETJMP(cntxt.cjmpbuf);
+	if (res) RELEASE_TIMER();
+    switch (res) {
     case CTXT_BREAK: goto for_break;
     case CTXT_NEXT: goto for_next;
     }
@@ -2910,7 +2943,10 @@ attribute_hidden SEXP do_while(SEXP call, SEXP op, SEXP args, SEXP rho)
 
     begincontext(&cntxt, CTXT_LOOP, R_NilValue, rho, R_BaseEnv, R_NilValue,
 		 R_NilValue);
-    if (SETJMP(cntxt.cjmpbuf) != CTXT_BREAK) {
+	MARK_TIMER(); 
+	int res = SETJMP(cntxt.cjmpbuf);
+	if (res) RELEASE_TIMER();
+    if (res != CTXT_BREAK) {
 	for(;;) {
 	    SEXP cond = PROTECT(eval(CAR(args), rho));
 	    int condl = asLogicalNoNA(cond, call);
@@ -2955,7 +2991,10 @@ attribute_hidden SEXP do_repeat(SEXP call, SEXP op, SEXP args, SEXP rho)
 
     begincontext(&cntxt, CTXT_LOOP, R_NilValue, rho, R_BaseEnv, R_NilValue,
 		 R_NilValue);
-    if (SETJMP(cntxt.cjmpbuf) != CTXT_BREAK) {
+	MARK_TIMER();
+	int res = SETJMP(cntxt.cjmpbuf);
+	if (res) RELEASE_TIMER();
+    if (res != CTXT_BREAK) {
 	for (;;) {
 	    eval(body, rho);
 	}
@@ -3603,6 +3642,7 @@ attribute_hidden SEXP do_set(SEXP call, SEXP op, SEXP args, SEXP rho)
  */
 attribute_hidden SEXP evalList(SEXP el, SEXP rho, SEXP call, int n)
 {
+	BEGIN_TIMER(TR_evalList);
     SEXP head, tail, ev, h, val;
 
     head = R_NilValue;
@@ -3681,6 +3721,7 @@ attribute_hidden SEXP evalList(SEXP el, SEXP rho, SEXP call, int n)
     if (head != R_NilValue)
 	UNPROTECT(1);
 
+	END_TIMER(TR_evalList);
     return head;
 
 } /* evalList() */
@@ -3937,10 +3978,13 @@ attribute_hidden SEXP do_eval(SEXP call, SEXP op, SEXP args, SEXP rho)
 	PROTECT(expr);
 	begincontext(&cntxt, CTXT_RETURN, R_GlobalContext->call,
 	             env, rho, args, op);
+	MARK_TIMER();
 	if (!SETJMP(cntxt.cjmpbuf))
 	    expr = eval(expr, env);
-	else
+	else {
+		RELEASE_TIMER();
 	    expr = R_ReturnedValue;
+	}
 	UNPROTECT(1);
 	PROTECT(expr);
 	endcontext(&cntxt);
@@ -3952,6 +3996,7 @@ attribute_hidden SEXP do_eval(SEXP call, SEXP op, SEXP args, SEXP rho)
 	tmp = R_NilValue;
 	begincontext(&cntxt, CTXT_RETURN, R_GlobalContext->call,
 	             env, rho, args, op);
+	MARK_TIMER();
 	if (!SETJMP(cntxt.cjmpbuf)) {
 	    int n = LENGTH(expr);
 	    for(int i = 0 ; i < n ; i++) {
@@ -3959,8 +4004,10 @@ attribute_hidden SEXP do_eval(SEXP call, SEXP op, SEXP args, SEXP rho)
 		tmp = eval(VECTOR_ELT(expr, i), env);
 	    }
 	}
-	else
+	else {
+		RELEASE_TIMER();
 	    tmp = R_ReturnedValue;
+	}
 	UNPROTECT(1);
 	PROTECT(tmp);
 	endcontext(&cntxt);
@@ -7488,6 +7535,8 @@ static SEXP bcEval(SEXP body, SEXP rho)
   /* check version and allow bytecode to be disabled for testing */
   if (R_disable_bytecode || ! R_BCVersionOK(body))
       return eval(bytecodeExpr(body), rho);
+ 
+  BEGIN_TIMER(TR_bcEval);
 
   struct bcEval_globals globals;
   save_bcEval_globals(&globals);
@@ -7500,6 +7549,8 @@ static SEXP bcEval(SEXP body, SEXP rho)
   struct bcEval_locals locals = bcode_setup_locals(body, rho);
   SEXP value = bcEval_loop(&locals);
   restore_bcEval_globals(&globals);
+
+  END_TIMER(TR_bcEval);
   return value;  
 }
 
@@ -8050,13 +8101,17 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	  checkForMissings(args, call);
 	  flag = PRIMPRINT(fun);
 	  R_Visible = flag != 1;
+	  { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, args, rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  if (flag < 2) R_Visible = flag != 1;
 	  break;
 	case SPECIALSXP:
 	  flag = PRIMPRINT(fun);
 	  R_Visible = flag != 1;
+	  { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, markSpecialArgs(CDR(call)), rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  if (flag < 2) R_Visible = flag != 1;
 	  break;
 	case CLOSXP:
@@ -8111,11 +8166,15 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	    begincontext(&cntxt, CTXT_BUILTIN, call,
 			 R_BaseEnv, R_BaseEnv, R_NilValue, R_NilValue);
 	    R_Srcref = NULL;
+		BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	    value = PRIMFUN(fun) (call, fun, args, rho);
+		END_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	    R_Srcref = oldref;
 	    endcontext(&cntxt);
 	} else {
+		BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	    value = PRIMFUN(fun) (call, fun, args, rho);
+		END_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	}
 	if (flag < 2) R_Visible = flag != 1;
 	vmaxset(vmax);
@@ -8135,7 +8194,9 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	}
 	flag = PRIMPRINT(fun);
 	R_Visible = flag != 1;
+	BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	SEXP value = PRIMFUN(fun) (call, fun, markSpecialArgs(CDR(call)), rho);
+	END_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	if (flag < 2) R_Visible = flag != 1;
 	vmaxset(vmax);
 	BCNPUSH(value);
@@ -8476,7 +8537,9 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	  SETCAR(args, lhs);
 	  /* make the call */
 	  checkForMissings(args, call);
+	   { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, args, rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  break;
 	case SPECIALSXP:
 	  /* duplicate arguments and protect */
@@ -8492,7 +8555,9 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	  prom = mkRHSPROMISE(vexpr, rhs);
 	  SETCAR(last, prom);
 	  /* make the call */
+	  { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, args, rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  UNPROTECT(1);
 	  break;
 	case CLOSXP:
@@ -8529,7 +8594,9 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	  SETCAR(args, lhs);
 	  /* make the call */
 	  checkForMissings(args, call);
+	  { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, args, rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  break;
 	case SPECIALSXP:
 	  /* duplicate arguments and put into stack for GC protection */
@@ -8540,7 +8607,9 @@ static SEXP bcEval_loop(struct bcEval_locals *ploc)
 	  prom = R_mkEVPROMISE_NR(R_TmpvalSymbol, lhs);
 	  SETCAR(args, prom);
 	  /* make the call */
+	  { BEGIN_PRIMFUN_TIMER(PRIMOFFSET(fun));
 	  value = PRIMFUN(fun) (call, fun, args, rho);
+	  END_PRIMFUN_TIMER(PRIMOFFSET(fun)); }
 	  break;
 	case CLOSXP:
 	  /* replace first argument with evaluated promise for LHS */

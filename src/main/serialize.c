@@ -38,6 +38,8 @@
 #include <trioremap.h>
 #endif
 
+#include "timeR.h"
+
 /* From time to time changes in R, such as the addition of a new SXP,
  * may require changes in the save file format.  Here are some
  * guidelines on handling format changes:
@@ -1247,8 +1249,23 @@ static void WriteItem (SEXP s, SEXP ref_table, R_outpstream_t stream)
 	default:
 	    error(_("WriteItem: unknown type %i"), TYPEOF(s));
 	}
-	if (hasattr)
+	if (hasattr) {
+		 // timeR hack: attach original timer name to sourcerefs
+	    if (TYPEOF(s) == INTSXP && OBJECT(s)) {
+		SEXP cl = getAttrib(s, R_ClassSymbol); // STRSXP
+		// FIXME: Check more than one element if available?
+		if (LENGTH(s) > 8 &&
+		    streql(CHAR(STRING_ELT(cl, 0)),
+			   CHAR(PRINTNAME(R_SrcrefSymbol)))) {
+		    /* add a new attribute storing the original name */
+		    SEXP str = mkChar(timeR_get_bin_name(INTEGER(s)[8]));
+		    PROTECT(str);
+		    setAttrib(s, install(TIME_R_BIN_NAME_ATTR), str);
+		    UNPROTECT(1);
+		}
+	    }
 	    WriteItem(ATTRIB(s), ref_table, stream);
+	}
     }
 }
 
@@ -2107,6 +2124,43 @@ static SEXP ReadItem_Recursive (int flags, SEXP ref_table, R_inpstream_t stream)
 	    SET_ATTRIB(s, hasattr ? ReadItem(ref_table, stream) : R_NilValue);
 	    R_ReadItemDepth--;
 	}
+
+	/* check for source references with bin ID */
+	if (TIME_R_ENABLED && TYPEOF(s) == INTSXP && hasattr && objf) {
+		SEXP cl = getAttrib(s, R_ClassSymbol); // STRSXP
+
+		// FIXME: Check more than one element if available?
+		// FIXME: This feels like a very bad way of coding this
+		if (LENGTH(s) > 8 &&
+	streql(CHAR(STRING_ELT(cl, 0)),
+			CHAR(PRINTNAME(R_SrcrefSymbol)))) {
+			/* create a new bin ID */
+			INTEGER(s)[8] = timeR_add_userfn_bin();
+
+	/* check for a saved bin name */
+	SEXP binname = getAttrib(s, install(TIME_R_BIN_NAME_ATTR));
+	if (binname != R_NilValue) {
+		timeR_name_bin(INTEGER(s)[8], CHAR(binname));
+		/* hide our modification */
+		setAttrib(s, install(TIME_R_BIN_NAME_ATTR), R_NilValue);
+	} else {
+		// FIXME: Semiduplicated from gram.y:getSrcFileName
+		const char *srcfilename = "(deserialized)";
+
+		SEXP srcfile = getAttrib(s, R_SrcfileSymbol);
+		if (isEnvironment(srcfile)) {
+		static SEXP filename_symbol;
+		SEXP filename = findVar(install("filename"), srcfile);
+		if (isString(filename) && length(filename))
+			srcfilename = CHAR(STRING_ELT(filename, 0));
+		}
+
+		timeR_name_bin_anonfunc(INTEGER(s)[8], srcfilename,
+					INTEGER(s)[0], INTEGER(s)[4]);
+	}
+		}
+	}
+
 	UNPROTECT(1); /* s */
 	if (TYPEOF(s) == BCODESXP && !R_BCVersionOK(s))
 	    return R_BytecodeExpr(s);

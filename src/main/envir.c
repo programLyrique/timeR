@@ -96,6 +96,8 @@
 #include <Internal.h>
 #include <R_ext/Callbacks.h>
 
+#include "timeR.h"
+
 #define FAST_BASE_CACHE_LOOKUP  /* Define to enable fast lookups of symbols */
 				/*    in global cache from base environment */
 
@@ -1219,7 +1221,8 @@ static R_INLINE SEXP findGlobalVar(SEXP symbol)
 
 attribute_hidden SEXP R_findVar(SEXP symbol, SEXP rho)
 {
-    SEXP vl;
+    BEGIN_TIMER(TR_SymLookup);
+    SEXP vl, ans;
 
     if (TYPEOF(rho) == NILSXP)
 	error(_("use of NULL environment is defunct"));
@@ -1233,19 +1236,28 @@ attribute_hidden SEXP R_findVar(SEXP symbol, SEXP rho)
        R_GlobalEnv */
     while (rho != R_GlobalEnv && rho != R_EmptyEnv) {
 	vl = R_findVarInFrame(rho, symbol);
-	if (vl != R_UnboundValue) return (vl);
+	if (vl != R_UnboundValue) {
+        END_TIMER(TR_SymLookup);
+        return (vl);
+    }
 	rho = ENCLOS(rho);
     }
     if (rho == R_GlobalEnv)
-	return findGlobalVar(symbol);
+	ans = findGlobalVar(symbol);
     else
-	return R_UnboundValue;
+	ans = R_UnboundValue;
+    END_TIMER(TR_SymLookup);
+    return ans;
 #else
     while (rho != R_EmptyEnv) {
 	vl = R_findVarInFrame(rho, symbol);
-	if (vl != R_UnboundValue) return (vl);
+	if (vl != R_UnboundValue) {
+        END_TIMER(TR_SymLookup);
+        return (vl);
+    }
 	rho = ENCLOS(rho);
     }
+    END_TIMER(TR_SymLookup);
     return R_UnboundValue;
 #endif
 }
@@ -1309,27 +1321,39 @@ R_varloc_t R_findVarLoc(SEXP symbol, SEXP rho)
 attribute_hidden SEXP
 findVar1(SEXP symbol, SEXP rho, SEXPTYPE mode, int inherits)
 {
+    BEGIN_TIMER(TR_SymLookup);
     SEXP vl;
     while (rho != R_EmptyEnv) {
 	vl = R_findVarInFrame(rho, symbol);
 	if (vl != R_UnboundValue) {
-	    if (mode == ANYSXP) return vl;
+	    if (mode == ANYSXP) {
+            END_TIMER(TR_SymLookup);
+            return vl;
+        }
 	    if (TYPEOF(vl) == PROMSXP) {
 		PROTECT(vl);
 		vl = eval(vl, rho);
 		UNPROTECT(1);
 	    }
-	    if (TYPEOF(vl) == mode) return vl;
+	    if (TYPEOF(vl) == mode) {
+            END_TIMER(TR_SymLookup);
+            return vl;
+        }
 	    if (mode == FUNSXP && (TYPEOF(vl) == CLOSXP ||
 				   TYPEOF(vl) == BUILTINSXP ||
-				   TYPEOF(vl) == SPECIALSXP))
+				   TYPEOF(vl) == SPECIALSXP)) {
+        END_TIMER(TR_SymLookup);
 		return (vl);
+        }
 	}
 	if (inherits)
 	    rho = ENCLOS(rho);
-	else
-	    return (R_UnboundValue);
+	else {
+        END_TIMER(TR_SymLookup);
+        return (R_UnboundValue);
     }
+    }
+    END_TIMER(TR_SymLookup);
     return (R_UnboundValue);
 }
 
@@ -1341,6 +1365,7 @@ static SEXP
 findVar1mode(SEXP symbol, SEXP rho, SEXPTYPE mode, Rboolean wants_S4,
 	     int inherits, Rboolean doGet)
 {
+    BEGIN_TIMER(TR_SymLookup);
     SEXP vl;
     int tl;
     if (mode == INTSXP) mode = REALSXP;
@@ -1353,7 +1378,10 @@ findVar1mode(SEXP symbol, SEXP rho, SEXPTYPE mode, Rboolean wants_S4,
 	    vl = findVarInFrame3(rho, symbol, doGet);
 
 	if (vl != R_UnboundValue) {
-	    if (mode == ANYSXP) return vl;
+	    if (mode == ANYSXP) {
+            END_TIMER(TR_SymLookup);
+            return vl;
+        }
 	    if (TYPEOF(vl) == PROMSXP) {
 		PROTECT(vl);
 		vl = eval(vl, rho);
@@ -1366,17 +1394,25 @@ findVar1mode(SEXP symbol, SEXP rho, SEXPTYPE mode, Rboolean wants_S4,
 	    if (tl == mode) {
 		if (tl == OBJSXP) {
 		    if ((wants_S4 && IS_S4_OBJECT(vl)) ||
-			(! wants_S4 && ! IS_S4_OBJECT(vl)))
+			(! wants_S4 && ! IS_S4_OBJECT(vl))) {
+            END_TIMER(TR_SymLookup);
 			return vl;
+            }
 		}
-		else return vl;
+		else {
+            END_TIMER(TR_SymLookup);
+            return vl;
+        }
 	    }
 	}
 	if (inherits)
 	    rho = ENCLOS(rho);
-	else
+	else {
+        END_TIMER(TR_SymLookup);
 	    return (R_UnboundValue);
     }
+    }
+    END_TIMER(TR_SymLookup);
     return (R_UnboundValue);
 }
 
@@ -1552,6 +1588,7 @@ SEXP dynamicfindVar(SEXP symbol, RCNTXT *cptr)
 attribute_hidden
 SEXP findFun3(SEXP symbol, SEXP rho, SEXP call)
 {
+    BEGIN_TIMER(TR_FunLookup);
     SEXP vl;
 
     /* If the symbol is marked as special, skip to the first
@@ -1589,8 +1626,10 @@ SEXP findFun3(SEXP symbol, SEXP rho, SEXP call)
 		}
 	    }
 	    if (TYPEOF(vl) == CLOSXP || TYPEOF(vl) == BUILTINSXP ||
-		TYPEOF(vl) == SPECIALSXP)
+		TYPEOF(vl) == SPECIALSXP) {
+        END_TIMER(TR_FunLookup);
 		return (vl);
+        }
 	    if (vl == R_MissingArg)
 	        R_MissingArgError(symbol, call, "getMissingError");
 
