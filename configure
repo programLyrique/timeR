@@ -733,6 +733,11 @@ PAPERCONF
 BUILD_TZONE_FALSE
 BUILD_TZONE_TRUE
 R_PROFILING
+HAVE_TIME_R
+TIME_R_STATIC_LIST
+TIME_R_CLOCK_RDTSCP
+TIME_R_CLOCK_RDTSC
+TIME_R_CLOCK_POSIX
 BITMAP_LIBS
 BITMAP_CPPFLAGS
 CURL_LIBS
@@ -1019,6 +1024,16 @@ WANT_R_SHLIB_FALSE
 WANT_R_SHLIB_TRUE
 WANT_R_FRAMEWORK_FALSE
 WANT_R_FRAMEWORK_TRUE
+WANT_TIME_R_EXTFUNC_FALSE
+WANT_TIME_R_EXTFUNC_TRUE
+WANT_TIME_R_USERFUNC_FALSE
+WANT_TIME_R_USERFUNC_TRUE
+WANT_TIME_R_FUNTAB_FALSE
+WANT_TIME_R_FUNTAB_TRUE
+WANT_TIME_R_STATIC_FALSE
+WANT_TIME_R_STATIC_TRUE
+WANT_TIME_R_FALSE
+WANT_TIME_R_TRUE
 config_opts
 rsharedir
 rincludedir
@@ -1085,6 +1100,11 @@ r_cxx_rules_frag
 r_objc_rules_frag'
 ac_user_opts='
 enable_option_checking
+enable_timeR
+enable_timeR_static
+enable_timeR_funtab
+enable_timeR_userfunc
+enable_timeR_external
 enable_R_profiling
 enable_memory_profiling
 enable_R_framework
@@ -1097,6 +1117,8 @@ enable_strict_barrier
 enable_prebuilt_html
 enable_lto
 enable_java
+with_timeR_clock
+with_timeR_static_list
 with_blas
 with_lapack
 with_2025blas
@@ -1868,6 +1890,11 @@ Optional Features:
   --disable-option-checking  ignore unrecognized --enable/--with options
   --disable-FEATURE       do not include FEATURE (same as --enable-FEATURE=no)
   --enable-FEATURE[=ARG]  include FEATURE [ARG=yes]
+  --enable-timeR          attempt to compile support for timeR [no]
+  --enable-timeR-static   enable statically defined timeR timers [yes]
+  --enable-timeR-funtab   enable function table timeR timers [yes]
+  --enable-timeR-userfunc enable user function timeR timers [yes]
+  --enable-timeR-external enable external function timeR timers [no]
   --enable-R-profiling    attempt to compile support for Rprof() [yes]
   --enable-memory-profiling
                           attempt to compile support for Rprofmem(),
@@ -1906,6 +1933,12 @@ Optional Features:
 Optional Packages:
   --with-PACKAGE[=ARG]    use PACKAGE [ARG=yes]
   --without-PACKAGE       do not use PACKAGE (same as --with-PACKAGE=no)
+  --with-timeR-clock=SOURCE
+                          select the clock source for timeR
+                          [posix],rdtsc,rdtscp
+  --with-timeR-static-list=FILE
+                          select a file with a list of static timers
+                          [tools/timeR-staticlist.txt]
   --with-C23              use C23 if available [yes]
   --with-blas             use system BLAS library (if available), or specify
                           it [unset]
@@ -4499,6 +4532,120 @@ config_opts="${ac_configure_args}"
 
 
 ### ** Optional features.
+
+## Allow the user to specify support for timeR deterministic profiling.
+# Check whether --enable-timeR was given.
+if test "${enable_timeR+set}" = set; then :
+  enableval=$enable_timeR; if test "${enableval}" = no; then
+  want_timeR=no
+elif test "${enableval}" = yes; then
+  want_timeR=yes
+else
+  want_timeR=no
+fi
+else
+  want_timeR=no
+fi
+
+ if test "x${want_timeR}" = xyes; then
+  WANT_TIME_R_TRUE=
+  WANT_TIME_R_FALSE='#'
+else
+  WANT_TIME_R_TRUE='#'
+  WANT_TIME_R_FALSE=
+fi
+
+
+## Allow the user to enable or disable static timers
+# Check whether --enable-timeR-static was given.
+if test "${enable_timeR_static+set}" = set; then :
+  enableval=$enable_timeR_static; if test "${enableval}" = no; then
+  want_timeR_static=no
+elif test "${enableval}" = yes; then
+  want_timeR_static=yes
+else
+  want_timeR_static=no
+fi
+else
+  want_timeR_static=yes
+fi
+
+ if test "x${want_timeR_static}" = xyes; then
+  WANT_TIME_R_STATIC_TRUE=
+  WANT_TIME_R_STATIC_FALSE='#'
+else
+  WANT_TIME_R_STATIC_TRUE='#'
+  WANT_TIME_R_STATIC_FALSE=
+fi
+
+
+## Allow the user to enable or disable function table timers
+# Check whether --enable-timeR-funtab was given.
+if test "${enable_timeR_funtab+set}" = set; then :
+  enableval=$enable_timeR_funtab; if test "${enableval}" = no; then
+  want_timeR_funtab=no
+elif test "${enableval}" = yes; then
+  want_timeR_funtab=yes
+else
+  want_timeR_funtab=no
+fi
+else
+  want_timeR_funtab=yes
+fi
+
+ if test "x${want_timeR_funtab}" = xyes; then
+  WANT_TIME_R_FUNTAB_TRUE=
+  WANT_TIME_R_FUNTAB_FALSE='#'
+else
+  WANT_TIME_R_FUNTAB_TRUE='#'
+  WANT_TIME_R_FUNTAB_FALSE=
+fi
+
+
+## Allow the user to enable or disable user function  timers
+# Check whether --enable-timeR-userfunc was given.
+if test "${enable_timeR_userfunc+set}" = set; then :
+  enableval=$enable_timeR_userfunc; if test "${enableval}" = no; then
+  want_timeR_userfunc=no
+elif test "${enableval}" = yes; then
+  want_timeR_userfunc=yes
+else
+  want_timeR_userfunc=no
+fi
+else
+  want_timeR_userfunc=yes
+fi
+
+ if test "x${want_timeR_userfunc}" = xyes; then
+  WANT_TIME_R_USERFUNC_TRUE=
+  WANT_TIME_R_USERFUNC_FALSE='#'
+else
+  WANT_TIME_R_USERFUNC_TRUE='#'
+  WANT_TIME_R_USERFUNC_FALSE=
+fi
+
+
+## Allow the user to enable or disable external function timers
+# Check whether --enable-timeR-external was given.
+if test "${enable_timeR_external+set}" = set; then :
+  enableval=$enable_timeR_external; if test "${enableval}" = no; then
+  want_timeR_extfunc=no
+elif test "${enableval}" = yes; then
+  want_timeR_extfunc=yes
+else
+  want_timeR_extfunc=no
+fi
+else
+  want_timeR_extfunc=no
+fi
+
+ if test "x${want_timeR_extfunc}" = xyes; then
+  WANT_TIME_R_EXTFUNC_TRUE=
+  WANT_TIME_R_EXTFUNC_FALSE='#'
+else
+  WANT_TIME_R_EXTFUNC_TRUE='#'
+  WANT_TIME_R_EXTFUNC_FALSE=
+fi
 
 ## Allow the user to specify support for R profiling.
 # Check whether --enable-R-profiling was given.
@@ -58261,7 +58408,60 @@ fi
 esac
 fi
 
+## timeR profiling.
+if test "${want_timeR}" = yes; then
 
+$as_echo "#define HAVE_TIME_R 1" >>confdefs.h
+
+
+  case ${with_time_r_clock} in
+    posix)
+
+$as_echo "#define TIME_R_CLOCK_POSIX 1" >>confdefs.h
+
+      ;;
+    rdtsc)
+
+$as_echo "#define TIME_R_CLOCK_RDTSC 1" >>confdefs.h
+
+      ;;
+    rdtscp)
+
+$as_echo "#define TIME_R_CLOCK_RDTSCP 1" >>confdefs.h
+
+      ;;
+  esac
+
+
+
+
+  TIME_R_STATIC_LIST=${with_time_r_staticlist}
+
+
+  if test "${want_timeR_static}" = yes; then
+
+$as_echo "#define TIME_R_STATICTIMERS 1" >>confdefs.h
+
+  fi
+
+  if test "${want_timeR_funtab}" = yes; then
+
+$as_echo "#define TIME_R_FUNTAB 1" >>confdefs.h
+
+  fi
+
+  if test "${want_timeR_userfunc}" = yes; then
+
+$as_echo "#define TIME_R_USERFUNCTIONS 1" >>confdefs.h
+
+  fi
+
+  if test "${want_timeR_extfunc}" = yes; then
+
+$as_echo "#define TIME_R_EXTFUNC 1" >>confdefs.h
+
+  fi
+fi
 
 ## R profiling.
 if test "${want_R_profiling}" = yes; then
@@ -64159,6 +64359,26 @@ LIBOBJS=$ac_libobjs
 LTLIBOBJS=$ac_ltlibobjs
 
 
+if test -z "${WANT_TIME_R_TRUE}" && test -z "${WANT_TIME_R_FALSE}"; then
+  as_fn_error $? "conditional \"WANT_TIME_R\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WANT_TIME_R_STATIC_TRUE}" && test -z "${WANT_TIME_R_STATIC_FALSE}"; then
+  as_fn_error $? "conditional \"WANT_TIME_R_STATIC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WANT_TIME_R_FUNTAB_TRUE}" && test -z "${WANT_TIME_R_FUNTAB_FALSE}"; then
+  as_fn_error $? "conditional \"WANT_TIME_R_FUNTAB\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WANT_TIME_R_USERFUNC_TRUE}" && test -z "${WANT_TIME_R_USERFUNC_FALSE}"; then
+  as_fn_error $? "conditional \"WANT_TIME_R_USERFUNC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
+if test -z "${WANT_TIME_R_EXTFUNC_TRUE}" && test -z "${WANT_TIME_R_EXTFUNC_FALSE}"; then
+  as_fn_error $? "conditional \"WANT_TIME_R_EXTFUNC\" was never defined.
+Usually this means the macro was only invoked conditionally." "$LINENO" 5
+fi
 if test -z "${WANT_R_FRAMEWORK_TRUE}" && test -z "${WANT_R_FRAMEWORK_FALSE}"; then
   as_fn_error $? "conditional \"WANT_R_FRAMEWORK\" was never defined.
 Usually this means the macro was only invoked conditionally." "$LINENO" 5
@@ -67200,6 +67420,38 @@ if test -z "${r_no_options}"; then
 else
   r_no_options="${r_no_options}${separator}shared BLAS"
 fi
+fi
+if test "${want_timeR}" = yes; then
+  separator=", "
+test -z "${separator}" && separator=" "
+if test -z "${r_options}"; then
+  r_options="timeR profiling"
+else
+  r_options="${r_options}${separator}timeR profiling"
+fi
+  case ${with_time_r_clock} in
+    posix)  separator=" "
+test -z "${separator}" && separator=" "
+if test -z "${r_options}"; then
+  r_options="(POSIX)"
+else
+  r_options="${r_options}${separator}(POSIX)"
+fi ;;
+    rdtsc)  separator=" "
+test -z "${separator}" && separator=" "
+if test -z "${r_options}"; then
+  r_options="(RDTSC)"
+else
+  r_options="${r_options}${separator}(RDTSC)"
+fi ;;
+    rdtscp) separator=" "
+test -z "${separator}" && separator=" "
+if test -z "${r_options}"; then
+  r_options="(RDTSCP)"
+else
+  r_options="${r_options}${separator}(RDTSCP)"
+fi ;;
+  esac
 fi
 if test "${want_R_profiling}" = yes; then
   separator=", "
