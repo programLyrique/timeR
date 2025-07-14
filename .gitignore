@@ -1,0 +1,14 @@
+*.o
+*.d
+*.a
+*.so
+*.RDS
+*.ts
+*.tsa
+Makefile
+Makedeps
+src/library
+src/scripts
+library
+doc
+bin
