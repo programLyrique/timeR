@@ -545,6 +545,9 @@ SEXP do_tracemem(SEXP, SEXP, SEXP, SEXP);
 SEXP do_retracemem(SEXP, SEXP, SEXP, SEXP);
 SEXP do_untracemem(SEXP, SEXP, SEXP, SEXP);
 
+SEXP do_idlemark(SEXP, SEXP, SEXP, SEXP);
+SEXP do_getchildfile(SEXP call, SEXP op, SEXP args, SEXP rho);
+
 /* ALTREP-related */
 
 SEXP do_sorted_fpass(SEXP, SEXP, SEXP, SEXP);

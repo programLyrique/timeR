@@ -57,6 +57,7 @@ workerCommand <- function(machine, options, setup_strategy = "sequential")
     ## but the current possible values do not need quoting
     cmd <- paste(rscript,
                  if(length(rscript_args)) paste(rscript_args, collapse = " "),
+                 paste0("--timeR-raw=", traceR_getchildfile()),
                  "-e", shQuote(arg), env)
 
     ## We do redirection of connections at R level once the process is

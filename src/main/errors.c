@@ -33,6 +33,8 @@
 #include <R_ext/Print.h>
 #include <stdarg.h>
 
+#include "timeR.h"
+
 /* eval() sets R_Visible = TRUE. Thas may not be wanted when eval() is
    used in C code. This is a version that saves/restores R_Visible.
    This should probably be moved to eval.c, be make public, and used

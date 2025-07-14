@@ -46,6 +46,8 @@
 #include <fcntl.h>
 #include <string.h>
 
+#include <timeR.h>
+
 //#include <Rinterface.h> /* for R_Interactive, but also in Defn.h */
 #include <R_ext/eventloop.h> /* for R_SelectEx */
 
@@ -577,6 +579,7 @@ SEXP mc_fork(SEXP sEstranged)
 	error("detected re-use of valid pipe ends\n");
 #endif
     res_i[0] = (int) pid;
+	timeR_forked(pid);
     if (pid == 0) { /* child */
 	R_isForkedChild = 1;
 	/* free children entries inherited from parent */
@@ -1214,6 +1217,7 @@ NORET SEXP mc_exit(SEXP sRes)
 #ifdef MC_DEBUG
     Dprintf("child %d: exiting with exit status %d\n", getpid(), res);
 #endif
+	timeR_finish();
     _exit(res);
     error(_("'mcexit' failed"));
 }

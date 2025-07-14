@@ -110,6 +110,7 @@ mclapply <- function(X, FUN, ..., mc.preschedule = TRUE, mc.set.seed = TRUE,
             jobsp <- processID(jobs)
             has.errors <- 0L
             delivered.result <- 0L
+            traceR_idlemark(TRUE)
             while (!all(fin)) {
                 s <- selectChildren(jobs[!is.na(jobsp)], -1)
                 if (is.null(s)) break   # no children -> no hope (should not happen)
@@ -150,6 +151,7 @@ mclapply <- function(X, FUN, ..., mc.preschedule = TRUE, mc.set.seed = TRUE,
                         }
                     }
             }
+            traceR_idlemark(FALSE)
             nores <- length(X) - delivered.result
             if (nores > 0)
                 warning(sprintf(ngettext(nores,
