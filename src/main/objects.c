@@ -31,6 +31,8 @@
 #include <Internal.h>
 #include <R_ext/RS.h> /* for R_Calloc, R_Realloc and for S4 object bit */
 
+#include "timeR.h"
+
 static SEXP GetObject(RCNTXT *cptr)
 {
     SEXP s, b, formals, tag;
@@ -95,7 +97,9 @@ static SEXP applyMethod(SEXP call, SEXP op, SEXP args, SEXP rho, SEXP newvars)
 	int save = R_PPStackTop, flag = PRIMPRINT(op);
 	const void *vmax = vmaxget();
 	R_Visible = flag != 1;
+	BEGIN_PRIMFUN_TIMER(PRIMOFFSET(op));
 	ans = PRIMFUN(op) (call, op, args, rho);
+	END_PRIMFUN_TIMER(PRIMOFFSET(op));
 	if (flag < 2) R_Visible = flag != 1;
 	check_stack_balance(op, save);
 	vmaxset(vmax);
@@ -110,7 +114,9 @@ static SEXP applyMethod(SEXP call, SEXP op, SEXP args, SEXP rho, SEXP newvars)
 	const void *vmax = vmaxget();
 	PROTECT(args = evalList(args, rho, call, 0));
 	R_Visible = flag != 1;
+	BEGIN_PRIMFUN_TIMER(PRIMOFFSET(op));
 	ans = PRIMFUN(op) (call, op, args, rho);
+	END_PRIMFUN_TIMER(PRIMOFFSET(op));
 	if (flag < 2) R_Visible = flag != 1;
 	UNPROTECT(1);
 	check_stack_balance(op, save);
