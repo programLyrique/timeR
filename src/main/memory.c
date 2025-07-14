@@ -88,6 +88,7 @@
 #include <R_ext/Rallocators.h> /* for R_allocator_t structure */
 #include <Rmath.h> // R_pow_di
 #include <Print.h> // R_print
+#include "timeR.h"
 
 /* malloc uses size_t.  We are assuming here that size_t is at least
    as large as unsigned long.  Changed from int at 1.6.0 to (i) allow
@@ -1575,6 +1576,7 @@ static Rboolean RunFinalizers(void)
 	       for this routine to be called recursively from a
 	       gc triggered by a finalizer. */
 	    PROTECT(next);
+        MARK_TIMER();
 	    if (! SETJMP(thiscontext.cjmpbuf)) {
 		R_GlobalContext = R_ToplevelContext = &thiscontext;
 
@@ -1587,7 +1589,9 @@ static Rboolean RunFinalizers(void)
 		else
 		    SET_WEAKREF_NEXT(last, next);
 		R_RunWeakRefFinalizer(s);
-	    }
+	    } else {
+            RELEASE_TIMER();
+        }
 	    endcontext(&thiscontext);
 	    UNPROTECT(1); /* next */
 	    R_ToplevelContext = saveToplevelContext;
@@ -2481,6 +2485,7 @@ static SEXP allocSExpNonCons(SEXPTYPE t)
    unless a GC will actually occur. */
 SEXP cons(SEXP car, SEXP cdr)
 {
+    BEGIN_TIMER(TR_cons);
     SEXP s;
     if (FORCE_GC || NO_FREE_NODES()) {
 	PROTECT(car);
@@ -2507,11 +2512,13 @@ SEXP cons(SEXP car, SEXP cdr)
     CDR(s) = CHK(cdr); if (cdr) INCREMENT_REFCNT(cdr);
     TAG(s) = R_NilValue;
     ATTRIB(s) = R_NilValue;
+    END_TIMER(TR_cons);
     return s;
 }
 
 attribute_hidden SEXP CONS_NR(SEXP car, SEXP cdr)
 {
+    BEGIN_TIMER(TR_cons);
     SEXP s;
     if (FORCE_GC || NO_FREE_NODES()) {
 	PROTECT(car);
@@ -2539,6 +2546,7 @@ attribute_hidden SEXP CONS_NR(SEXP car, SEXP cdr)
     CDR(s) = CHK(cdr);
     TAG(s) = R_NilValue;
     ATTRIB(s) = R_NilValue;
+    END_TIMER(TR_cons);
     return s;
 }
 
@@ -2689,6 +2697,7 @@ static void custom_node_free(void *ptr) {
 
 SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 {
+    BEGIN_TIMER(TR_allocVector);
     SEXP s;     /* For the generational collector it would be safer to
 		   work in terms of a VECSXP here, but that would
 		   require several casts below... */
@@ -2734,6 +2743,7 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 	    SET_STDVEC_LENGTH(s, (R_len_t) length); // is 1
 	    SET_STDVEC_TRUELENGTH(s, 0);
 	    INIT_REFCNT(s);
+        END_TIMER(TR_allocVector);
 	    return(s);
 	}
     }
@@ -2745,6 +2755,7 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
     /* number of vector cells to allocate */
     switch (type) {
     case NILSXP:
+    END_TIMER(TR_allocVector);
 	return R_NilValue;
     case RAWSXP:
 	size = BYTE2VEC(length);
@@ -2817,18 +2828,24 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
 	}
 	break;
     case LANGSXP:
-	if(length == 0) return R_NilValue;
+	if(length == 0) {
+        END_TIMER(TR_allocVector);
+        return R_NilValue;
+    }
 #ifdef LONG_VECTOR_SUPPORT
 	if (length > R_SHORT_LEN_MAX) error("invalid length for pairlist");
 #endif
 	s = allocList((int) length);
 	SET_TYPEOF(s, LANGSXP);
+    END_TIMER(TR_allocVector);
 	return s;
     case LISTSXP:
 #ifdef LONG_VECTOR_SUPPORT
 	if (length > R_SHORT_LEN_MAX) error("invalid length for pairlist");
 #endif
-	return allocList((int) length);
+	s = allocList((int) length);
+    END_TIMER(TR_allocVector);
+    return s;
     default:
 	error(_("invalid type/length (%s/%lld) in vector allocation"),
 	      type2char(type), (long long)length);
@@ -2985,6 +3002,7 @@ SEXP allocVector3(SEXPTYPE type, R_xlen_t length, R_allocator_t *allocator)
     else if (type == RAWSXP)
 	VALGRIND_MAKE_MEM_UNDEFINED(RAW(s), actual_size);
 #endif
+    END_TIMER(TR_allocVector);
     return s;
 }
 
@@ -2996,11 +3014,13 @@ attribute_hidden SEXP allocCharsxp(R_len_t len)
 
 SEXP allocList(int n)
 {
+    BEGIN_TIMER(TR_allocList);
     int i;
     SEXP result;
     result = R_NilValue;
     for (i = 0; i < n; i++)
 	result = CONS(R_NilValue, result);
+    END_TIMER(TR_allocList);
     return result;
 }
 
@@ -3014,9 +3034,11 @@ SEXP allocLang(int n)
 
 SEXP allocS4Object(void)
 {
+BEGIN_TIMER(TR_allocS4);
    SEXP s;
    GC_PROT(s = allocSExpNonCons(OBJSXP));
    SET_S4_OBJECT(s);
+   END_TIMER(TR_allocS4);
    return s;
 }
 
@@ -3188,6 +3210,8 @@ attribute_hidden void R_check_thread(const char *s) {}
 
 static void R_gc_internal(R_size_t size_needed)
 {
+    BEGIN_TIMER(TR_GCInternal);
+
     R_CHECK_THREAD;
     if (!R_GCEnabled || R_in_gc) {
       if (R_in_gc)
@@ -3332,6 +3356,8 @@ static void R_gc_internal(R_size_t size_needed)
 	LOGICAL(R_LogicalNAValue)[0] = NA_LOGICAL;
 	gc_error("internal logical NA value has been modified");
     }
+
+    END_TIMER(TR_GCInternal);
 }
 
 
