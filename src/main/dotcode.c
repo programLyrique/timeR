@@ -32,6 +32,8 @@
 
 #include <Rmath.h>
 
+#include "timeR.h"
+
 
 #ifndef max
 #define max(a, b) ((a > b)?(a):(b))
@@ -545,7 +547,8 @@ static SEXP check_retval(SEXP call, SEXP val)
 
 attribute_hidden SEXP do_External(SEXP call, SEXP op, SEXP args, SEXP env)
 {
-    DL_FUNC ofun = NULL;
+    BEGIN_TIMER(TR_dotExternalFull);
+	DL_FUNC ofun = NULL;
     SEXP retval;
     R_RegisteredNativeSymbol symbol = {R_EXTERNAL_SYM, {NULL}, NULL};
     const void *vmax = vmaxget();
@@ -570,15 +573,24 @@ attribute_hidden SEXP do_External(SEXP call, SEXP op, SEXP args, SEXP env)
 
     if (PRIMVAL(op) == 1) {
 	R_ExternalRoutine2 fun = (R_ExternalRoutine2) ofun;
+	BEGIN_TIMER(TR_dotExternal);
+	BEGIN_EXTERNAL_TIMER(buf, ofun);
 	retval = fun(call, op, args, env);
+	END_EXTERNAL_TIMER();
+	END_TIMER(TR_dotExternal);
     } else {
 	R_ExternalRoutine fun = (R_ExternalRoutine) ofun;
+	BEGIN_TIMER(TR_dotExternal);
+	BEGIN_EXTERNAL_TIMER(buf, ofun);
 	retval = fun(args);
+	END_EXTERNAL_TIMER();
+	END_TIMER(TR_dotExternal);
     }
 
     R_try_clear_args_refcnt(args);
 
     vmaxset(vmax);
+	END_TIMER(TR_dotExternalFull);
     return check_retval(call, retval);
 }
 
@@ -743,9 +755,19 @@ R_FUNTYPES(SEXP, S, SEXP)
 /* typedef void (*FUNV1)(void *); */
 R_FUNTYPES(void, V, void *)
 
-attribute_hidden SEXP R_doDotCall(DL_FUNC fun, int nargs, SEXP *cargs,
+#ifdef __cplusplus
+typedef SEXP (*VarFun)(...);
+#else
+typedef DL_FUNC VarFun;
+#endif
+
+attribute_hidden SEXP R_doDotCall(DL_FUNC ofun, int nargs, SEXP *cargs,
 				  SEXP call) {
+	BEGIN_TIMER(TR_RdoDotCall);
     SEXP retval = R_NilValue;	/* -Wall */
+	VarFun fun = NULL;
+	fun = (VarFun) ofun;
+    BEGIN_EXTERNAL_TIMER(buf, ofun);
     switch (nargs) {
     case 0:
 	retval = ((FUNS0)fun)();
@@ -1399,12 +1421,15 @@ attribute_hidden SEXP R_doDotCall(DL_FUNC fun, int nargs, SEXP *cargs,
     default:
 	errorcall(call, _("too many arguments, sorry"));
     }
+	END_EXTERNAL_TIMER();
+    END_TIMER(TR_RdoDotCall);
     return check_retval(call, retval);
 }
 
 /* .Call(name, <args>) */
 attribute_hidden SEXP do_dotcall(SEXP call, SEXP op, SEXP args, SEXP env)
 {
+	BEGIN_TIMER(TR_doDotCall);
     DL_FUNC ofun = NULL;
     SEXP retval, cargs[MAX_ARGS], pargs;
     R_RegisteredNativeSymbol symbol = {R_CALL_SYM, {NULL}, NULL};
@@ -1476,6 +1501,7 @@ attribute_hidden SEXP do_dotcall(SEXP call, SEXP op, SEXP args, SEXP env)
 	UNPROTECT(nprotect);
     }
     vmaxset(vmax);
+	END_TIMER(TR_doDotCall);
     return retval;
 }
 
@@ -1660,8 +1686,12 @@ R_FindNativeSymbolFromDLL(char *name, DllReference *dll,
 
 attribute_hidden SEXP do_dotCode(SEXP call, SEXP op, SEXP args, SEXP env)
 {
-    void **cargs, **cargs0 = NULL /* -Wall */;
-    int naok, na, nargs, Fort;
+    int Fort = PRIMVAL(op);
+
+	BEGIN_TIMER_ALTERNATIVES(Fort, TR_dotFortranFull, TR_dotCFull);
+
+	void **cargs, **cargs0 = NULL /* -Wall */;
+    int naok, na, nargs;
     bool copy = R_CBoundsCheck; /* options(CboundsCheck) */
     DL_FUNC fun = NULL;
     SEXP ans, pa, s;
@@ -1952,6 +1982,9 @@ attribute_hidden SEXP do_dotCode(SEXP call, SEXP op, SEXP args, SEXP env)
 	}
 	if (nprotect) UNPROTECT(nprotect);
     }
+
+	BEGIN_TIMER_ALTERNATIVES(Fort, TR_dotFortran, TR_dotC);
+    BEGIN_EXTERNAL_TIMER(symName, ofun);
 
     /* FIXME: Calling a function via an incompatible function pointer is
        undefined behavior. */ 
@@ -2548,6 +2581,8 @@ attribute_hidden SEXP do_dotCode(SEXP call, SEXP op, SEXP args, SEXP env)
 	errorcall(call, _("too many arguments, sorry"));
     }
 
+	END_EXTERNAL_TIMER();
+    END_TIMER_ALTERNATIVES(Fort, TR_dotFortran, TR_dotC);
     for (na = 0, pa = args ; pa != R_NilValue ; pa = CDR(pa), na++) {
 	void *p = cargs[na];
 	SEXP arg = CAR(pa);
@@ -2734,5 +2769,8 @@ attribute_hidden SEXP do_dotCode(SEXP call, SEXP op, SEXP args, SEXP env)
     }
     UNPROTECT(1);
     vmaxset(vmax);
+
+	END_TIMER_ALTERNATIVES(Fort, TR_dotFortranFull, TR_dotCFull);
+
     return ans;
 }
