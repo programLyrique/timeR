@@ -195,6 +195,7 @@ int R_DefParamsEx(Rstart Rp, int RstartVersion)
     Rp->LoadSiteFile = TRUE;
     Rp->LoadInitFile = TRUE;
     Rp->DebugInitFile = FALSE;
+    Rp->InputFileName = NULL;
     Rp->vsize = R_VSIZE;
     Rp->nsize = R_NSIZE;
     Rp->max_vsize = R_SIZE_T_MAX;
@@ -367,6 +368,7 @@ void R_SetParams(Rstart Rp)
     LoadSiteFile = checkBool(Rp->LoadSiteFile, "R_LoadSitefile");
     LoadInitFile = checkBool(Rp->LoadInitFile, "R_LoadInitFile");
 //    DebugInitFile = checkBool(Rp->DebugInitFile, "R_DebugInitFile"); // unused
+    R_InputFileName = Rp->InputFileName;
     RestoreAction = Rp->RestoreAction;
     SaveAction = Rp->SaveAction;
     SetSize(Rp->vsize, Rp->nsize);

@@ -77,7 +77,7 @@ static int ParseBrowser(SEXP, SEXP);
 
 	/* Read-Eval-Print Loop [ =: REPL = repl ] with input from a file */
 
-static void R_ReplFile(FILE *fp, SEXP rho)
+static void R_ReplFile(FILE *fp, SEXP rho, const char* filename)
 {
     ParseStatus status;
     int savestack;
@@ -87,7 +87,7 @@ static void R_ReplFile(FILE *fp, SEXP rho)
     savestack = R_PPStackTop;
     for(;;) {
 	R_PPStackTop = savestack;
-	R_CurrentExpr = R_Parse1File(fp, 1, &status);
+	R_CurrentExpr = R_Parse1File(fp, 1, &status, filename);
 	switch (status) {
 	case PARSE_NULL:
 	    break;
@@ -197,7 +197,7 @@ typedef struct {
  point, i.e. the end of the first line or after the first ;.
  */
 attribute_hidden int
-Rf_ReplIteration(SEXP rho, int savestack, int browselevel, R_ReplState *state)
+Rf_ReplIteration(SEXP rho, int savestack, int browselevel, R_ReplState *state, const char *sourcename)
 {
     int c, browsevalue;
     SEXP value, thisExpr;
@@ -229,7 +229,7 @@ Rf_ReplIteration(SEXP rho, int savestack, int browselevel, R_ReplState *state)
     }
 
     R_PPStackTop = savestack;
-    R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 0, &state->status);
+    R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 0, &state->status, sourcename);
 
     switch(state->status) {
 
@@ -246,7 +246,7 @@ Rf_ReplIteration(SEXP rho, int savestack, int browselevel, R_ReplState *state)
     case PARSE_OK:
 
 	R_IoBufferReadReset(&R_ConsoleIob);
-	R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 1, &state->status);
+	R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 1, &state->status, sourcename);
 	if (browselevel) {
 	    browsevalue = ParseBrowser(R_CurrentExpr, rho);
 	    if(browsevalue == 1) return -1;
@@ -306,16 +306,28 @@ static void R_ReplConsole(SEXP rho, int savestack, int browselevel)
 {
     int status;
     R_ReplState state = { PARSE_NULL, 1, 0, "", NULL};
+    char* sourcename;
 
     R_IoBufferWriteReset(&R_ConsoleIob);
     state.buf[0] = '\0';
     state.buf[CONSOLE_BUFFER_SIZE] = '\0';
     /* stopgap measure if line > CONSOLE_BUFFER_SIZE chars */
     state.bufp = state.buf;
+
+    if (R_Interactive) {
+        sourcename = "Console";
+    } else {
+        if (R_InputFileName != NULL) {
+            sourcename = R_InputFileName;
+        } else {
+            sourcename = "(stdin)";
+        }
+    }
+
     if(R_Verbose)
 	REprintf(" >R_ReplConsole(): before \"for(;;)\" {main.c}\n");
     for(;;) {
-	status = Rf_ReplIteration(rho, savestack, browselevel, &state);
+	status = Rf_ReplIteration(rho, savestack, browselevel, &state, sourcename);
 	if(status < 0) {
 	  if (state.status == PARSE_INCOMPLETE)
 	    error(_("unexpected end of input"));
@@ -386,7 +398,7 @@ int R_ReplDLLdo1(void)
 	if(c == ';' || c == '\n') break;
     }
     R_PPStackTop = 0;
-    R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 0, &status);
+    R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 0, &status, "(embedded)");
 
     switch(status) {
     case PARSE_NULL:
@@ -395,7 +407,7 @@ int R_ReplDLLdo1(void)
 	break;
     case PARSE_OK:
 	R_IoBufferReadReset(&R_ConsoleIob);
-	R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 1, &status);
+	R_CurrentExpr = R_Parse1Buffer(&R_ConsoleIob, 1, &status,"(embedded)");
 	R_Visible = FALSE;
 	R_EvalDepth = 0;
 	resetTimeLimits();
@@ -728,7 +740,7 @@ static void R_LoadProfile(FILE *fparg, SEXP env)
 	    check_session_exit();
     } else {
 	    R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
-	    R_ReplFile(fp, env);
+	    R_ReplFile(fp, env, "Rprofile");
 	}
 	fclose(fp);
     }
@@ -1073,8 +1085,12 @@ void setup_Rmainloop(void)
     R_GlobalContext = R_ToplevelContext = R_SessionContext = &R_Toplevel;
     if (R_SignalHandlers) init_signal_handlers();
     if (!doneit) {
+    char base_name[PATH_MAX + 1];
+
+    snprintf(base_name, sizeof(base_name), "%s/library/base/R/base", R_Home);
+    
 	doneit = 1;
-	R_ReplFile(fp, baseNSenv);
+	R_ReplFile(fp, baseNSenv, base_name);
     }
     fclose(fp);
 #endif

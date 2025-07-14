@@ -74,6 +74,7 @@ typedef struct
     int LoadSiteFile;
     int LoadInitFile;
     int DebugInitFile; // unused
+    char *InputFileName;
     SA_TYPE RestoreAction;
     SA_TYPE SaveAction;
     R_SIZE_T vsize;

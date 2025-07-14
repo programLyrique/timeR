@@ -188,6 +188,8 @@ static SEXP	NewList(void);
 static void	NextArg(SEXP, SEXP, SEXP); /* add named element to list end */
 static SEXP	TagArg(SEXP, SEXP, YYLTYPE *);
 static int 	processLineDirective(int *);
+static void	setParseFilename(SEXP);
+static const char* getSrcFileName(SEXP);
 static bool      checkForPlaceholder(SEXP placeholder, SEXP arg);
 
 static int HavePlaceholder = FALSE; 
@@ -497,7 +499,7 @@ expr	: 	NUM_CONST			{ $$ = $1;	setId(@$); }
 	|	expr OR2 expr			{ $$ = xxbinary($2,$1,$3);	setId(@$); }
 	|	expr PIPE expr			{ $$ = xxpipe($1,$3,&@3);       setId(@$); }
 	|	expr PIPEBIND expr		{ $$ = xxpipebind($2,$1,$3,&@2);	setId(@$); }
-	|	expr LEFT_ASSIGN expr 		{ $$ = xxasign($2,$1,$3);	setId(@$); }
+	|	expr LEFT_ASSIGN expr 		{ $$ = xxassign($2,$1,$3);	setId(@$); }
 	|	expr RIGHT_ASSIGN expr 		{ $$ = xxassign($2,$3,$1);	setId(@$); }
 	|	FUNCTION '(' formlist ')' cr expr_or_assign_or_help %prec LOW
 						{ $$ = xxdefun($1,$3,$6,&@$); 	setId(@$); }
@@ -3551,6 +3553,23 @@ static int processLineDirective(int *type)
     /* we don't change xxparseno here:  it counts parsed lines, not official lines */
     R_ParseContext[R_ParseContextLast] = '\0';  /* Context report shouldn't show the directive */
     return(c);
+}
+
+/* return the source file name from srcref as a C string */
+static const char *getSrcFileName(SEXP srcref) {
+    static SEXP filename_symbol;
+    SEXP srcfile = getAttrib(srcref, R_SrcfileSymbol);
+
+    if (filename_symbol == NULL)
+        filename_symbol = install("filename");
+
+    if (isEnvironment(srcfile)) {
+        SEXP filename = findVar(filename_symbol, srcfile);
+        if (isString(filename) && length(filename))
+            return CHAR(STRING_ELT(filename, 0));
+    }
+
+    return "(unknown)";
 }
 
 /* Get the R symbol, and set yytext at the same time */

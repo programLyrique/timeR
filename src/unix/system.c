@@ -427,7 +427,8 @@ int Rf_initialize_R(int ac, char **av)
 				 _("cannot open file '%s': %s"),	\
 				 path, strerror(errno));		\
 			R_Suicide(msg);					\
-		    }							\
+		    }                               \
+			Rp->InputFileName = strdup(path);	\
 		}
 		R_INIT_TREAT_F(*av);
 
