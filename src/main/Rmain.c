@@ -22,8 +22,16 @@ int Rf_initialize_R(int ac, char **av); /* in ../unix/system.c */
 
 #include <Rinterface.h>
 
+// include config.h to ensure that timeR.h does not stub out our functions
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include "timeR.h"
+
 int main(int ac, char **av)
 {
+    timeR_init_early();
     R_running_as_main_program = 1;
     Rf_initialize_R(ac, av);
     Rf_mainloop(); /* does not return */
