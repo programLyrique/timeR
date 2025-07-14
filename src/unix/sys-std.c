@@ -54,6 +54,7 @@
 /* includes <sys/select.h> and <sys/time.h> */
 #include <R_ext/eventloop.h>
 #undef __SYSTEM__
+#include "timeR.h"
 
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>		/* for unlink */
@@ -1297,6 +1298,8 @@ void Rstd_CleanUp(SA_TYPE saveact, int status, int runLast)
 	ifp = NULL; 	/* To avoid trying to close it again */
     }
     fpu_setup(FALSE);
+
+	timeR_finish(); // FIXME: Maybe move upward if R functions are used for the dump?
 
     exit(status);
 }
