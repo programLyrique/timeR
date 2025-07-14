@@ -33,6 +33,8 @@
 
 #include <Rinterface.h>
 
+#include "timeR.h"
+
 /* Table of  .Internal(.) and .Primitive(.)  R functions
  * =====     =========	      ==========
  *
@@ -1013,6 +1015,10 @@ FUNTAB R_FunTab[] =
 {"curlDownload",do_curlDownload, 0,	11,	6,	{PP_FUNCALL, PREC_FN,	0}},
 {"compilerVersion",do_compilerVersion, 0,	11,	0,	{PP_FUNCALL, PREC_FN,	0}},
 
+{"traceR_idlemark", do_idlemark,0,     101,     1,      {PP_FUNCALL, PREC_FN,   0}},
+{"traceR_getchildfile",
+                do_getchildfile, 0,      1,     0,      {PP_FUNCALL, PREC_FN,   0}},
+
 {NULL,		NULL,		0,	0,	0,	{PP_INVALID, PREC_FN,	0}},
 };
 
@@ -1357,6 +1363,7 @@ SEXP installS3Signature(const char *className, const char *methodName) {
 
 attribute_hidden SEXP do_internal(SEXP call, SEXP op, SEXP args, SEXP env)
 {
+    BEGIN_TIMER(TR_do_internal);
     SEXP s, fun, ans;
     int save = R_PPStackTop;
     int flag;
@@ -1408,7 +1415,9 @@ attribute_hidden SEXP do_internal(SEXP call, SEXP op, SEXP args, SEXP env)
     PROTECT(args);
     flag = PRIMPRINT(INTERNAL(fun));
     R_Visible = flag != 1;
+    BEGIN_PRIMFUN_TIMER(PRIMOFFSET(INTERNAL(fun)));
     ans = PRIMFUN(INTERNAL(fun)) (s, INTERNAL(fun), args, env);
+    END_PRIMFUN_TIMER(PRIMOFFSET(INTERNAL(fun)));
     /* This resetting of R_Visible = FALSE was to fix PR#7397,
        now fixed in GEText */
     if (flag < 2) R_Visible = flag != 1;
@@ -1425,6 +1434,7 @@ attribute_hidden SEXP do_internal(SEXP call, SEXP op, SEXP args, SEXP env)
     UNPROTECT(1);
     check_stack_balance(INTERNAL(fun), save);
     vmaxset(vmax);
+    END_TIMER(TR_do_internal);
     return (ans);
 }
 #undef __R_Names__
@@ -1450,4 +1460,23 @@ attribute_hidden SEXP do_tilde(SEXP call, SEXP op, SEXP args, SEXP rho)
 const char *getPRIMNAME(SEXP object)
 {
     return PRIMNAME(object);
+}
+
+SEXP do_idlemark(SEXP call, SEXP op, SEXP args, SEXP rho) {
+  checkArity(op, args);
+  int i = asLogical(CAR(args));
+  if (i != NA_LOGICAL)
+    timeR_idlemark(!!i);
+  return R_NilValue;
+}
+
+SEXP do_getchildfile(SEXP call, SEXP op, SEXP args, SEXP rho) {
+  char childfile[1024];
+
+  checkArity(op, args);
+
+  timeR_getchildfile(childfile);
+
+  SEXP ans = mkString(childfile);
+  return ans;
 }
